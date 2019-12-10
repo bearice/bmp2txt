@@ -27,3 +27,8 @@ setup.log
 
 # Local OPAM switch
 _opam/
+._d/
+.vscode/
+*.bin
+*.log
+bmp2txt
