@@ -1,0 +1,16 @@
+name: CI
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup OCaml
+        uses: avsm/setup-ocaml@v1.0
+        with:
+          ocaml-version: 4.09.0
+      - name: Run make
+        run: make
