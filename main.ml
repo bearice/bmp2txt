@@ -1,6 +1,16 @@
 
 let debug_hex_dump buf = Hex.hexdump (Hex.of_bytes buf) ;;
 let bytes_remaining buf off = Bytes.sub buf off ((Bytes.length buf)-off) ;;
+let buf_to_string buf = 
+  let out = Buffer.create ((Bytes.length buf) * 3) in
+  let ( <= ) buf s = Buffer.add_string buf s in
+  let len = Bytes.length buf in
+  for i = 0 to len-1 do
+    out <= Printf.sprintf (if i < (len-1) then "%02x:" else "%02x") (Bytes.get_uint8 buf i)
+  done;
+
+  Buffer.contents out
+;;
 
 let read_list parser_fn buf = 
   if Bytes.length buf == 0 then [] else
@@ -15,7 +25,8 @@ let read_list parser_fn buf =
   read_list_rec [] 0
 ;;
 
-type bgp_msg_type = BGP_MSG_OPEN | BGP_MSG_UPDATE | BGP_MSG_NOTIFICATION | BGP_MSG_KEEPALIVE | BGP_MSG_UNKNOWN of int [@@deriving show];;
+
+type bgp_msg_type = BGP_MSG_OPEN | BGP_MSG_UPDATE | BGP_MSG_NOTIFICATION | BGP_MSG_KEEPALIVE | BGP_MSG_UNKNOWN of int [@@deriving show { with_path = false }];;
 let read_bgp_msg_type t = match t with
   | 1 -> BGP_MSG_OPEN
   | 2 -> BGP_MSG_UPDATE
@@ -25,10 +36,10 @@ let read_bgp_msg_type t = match t with
 ;;
 
 type bgp_msg_header = {
-  marker: bytes;
+  marker: bytes [@printer fun fmt i-> fprintf fmt "%s" (buf_to_string i)];
   len: int;
   typ: bgp_msg_type;
-} [@@deriving show] ;;
+} [@@deriving show { with_path = false }] ;;
 let read_bgp_msg_header buf = 
   let marker = Bytes.sub buf 0 16 in
   let len = Bytes.get_uint16_be buf 16 in
@@ -39,19 +50,27 @@ let read_bgp_msg_header buf =
 type bgp_msg_params = {
   typ: int;
   len: int;
-  msg: bytes;
-} [@@deriving show] ;;
-(* TODO: parse open_params *)
+  msg: bytes [@printer fun fmt i-> fprintf fmt "%s" (buf_to_string i)];
+} [@@deriving show { with_path = false }] ;;
+let read_bgp_msg_params buf offset = 
+  let typ = Bytes.get_uint8 buf (offset+0) in 
+  let len = Bytes.get_uint8 buf (offset+1) in
+  let msg = Bytes.sub buf (offset+2) len in
+  let offset = offset+2+len in
+  let tlv = {typ;len;msg} in
+  (tlv,offset)
+;;
+let read_bgp_msg_params_list = read_list read_bgp_msg_params
 
 type bgp_msg_open = { 
   bgp_hdr: bgp_msg_header;
   ver: int;
   my_as: int;   
   hold_time : int;
-  bgp_identifier : int32;
+  bgp_identifier : Ipaddr.V4.t;
   opt_len: int;
   opts: bgp_msg_params list;
-} [@@deriving show] ;;
+} [@@deriving show { with_path = false }] ;;
 let read_bgp_msg_open buf = 
   let bgp_hdr = read_bgp_msg_header buf in
   let buf = bytes_remaining buf 19 in
@@ -59,9 +78,10 @@ let read_bgp_msg_open buf =
   let ver = Bytes.get_uint8 buf 0 in
   let my_as = Bytes.get_uint16_be buf 1 in
   let hold_time = Bytes.get_uint16_be buf 3 in
-  let bgp_identifier = Bytes.get_int32_be buf 5 in
+  let bgp_identifier = Ipaddr.V4.of_int32 (Bytes.get_int32_be buf 5) in
   let opt_len = Bytes.get_uint8 buf 9 in
-  let opts = [] in
+  let opt_buf = Bytes.sub buf 10 opt_len in
+  let opts = read_bgp_msg_params_list opt_buf in
   let offset = 10+opt_len in
   let buf = Bytes.sub buf offset ((Bytes.length buf)-offset) in
   let ret = {bgp_hdr;ver;my_as;hold_time;bgp_identifier;opt_len;opts} in
@@ -69,7 +89,7 @@ let read_bgp_msg_open buf =
   (ret,buf)
 ;;
 
-type bgp_msg_path_attr_type = ORIGIN | AS_PATH | NEXT_HOP | MULTI_EXIT_DISC | LOCAL_PREF | ATOMIC_AGGREGATE | AGGREGATOR | UNKNOWN of int [@@deriving show] ;;
+type bgp_msg_path_attr_type = ORIGIN | AS_PATH | NEXT_HOP | MULTI_EXIT_DISC | LOCAL_PREF | ATOMIC_AGGREGATE | AGGREGATOR | UNKNOWN of int [@@deriving show { with_path = false }] ;;
 let read_bgp_msg_path_attr_type t = match t with
     1 -> ORIGIN
   | 2 -> AS_PATH
@@ -85,8 +105,8 @@ type bgp_msg_path_attr = {
   flg:int;
   typ:bgp_msg_path_attr_type;
   len:int;
-  value:bytes;
-} [@@deriving show] ;;
+  value:bytes [@printer fun fmt i-> fprintf fmt "%s" (buf_to_string i)];
+} [@@deriving show { with_path = false }] ;;
 let read_bgp_msg_path_attr buf offset = 
   let flg = Bytes.get_uint8 buf (offset+0) in
   let typ = Bytes.get_uint8 buf (offset+1) in
@@ -107,7 +127,7 @@ let read_bgp_msg_path_attr_list = read_list read_bgp_msg_path_attr
 type bgp_msg_nlri = {
   len:int;
   pfx:bytes;
-} [@@deriving show] ;;
+} [@@deriving show { with_path = false }] ;;
 let read_bgp_msg_nlri buf offset = 
   let len = Bytes.get_uint8 buf (offset+0) in
   let blen = if len = 0 then 0 else ((len-1)/8)+1 in
@@ -126,7 +146,7 @@ type bgp_msg_update = {
   attr_len: int;
   attr: bgp_msg_path_attr list;
   nlri: bgp_msg_nlri list;
-} [@@deriving show] ;;
+} [@@deriving show { with_path = false }] ;;
 let read_bgp_msg_update buf = 
   let bgp_hdr = read_bgp_msg_header buf in
   let buf = bytes_remaining buf 19 in
@@ -142,7 +162,7 @@ let read_bgp_msg_update buf =
   let nlri = read_bgp_msg_nlri_list nlri in
   {bgp_hdr;withdraw_len;withdraw;attr_len;attr;nlri}
 
-type bmp_msg_peer_type = BMP_MSG_PEER_TYPE_GLOBAL | BMP_MSG_PEER_TYPE_RD | BMP_MSG_PEER_TYPE_LOCAL | BMP_MSG_PEER_TYPE_UNKNOWN of int [@@deriving show] ;;
+type bmp_msg_peer_type = BMP_MSG_PEER_TYPE_GLOBAL | BMP_MSG_PEER_TYPE_RD | BMP_MSG_PEER_TYPE_LOCAL | BMP_MSG_PEER_TYPE_UNKNOWN of int [@@deriving show { with_path = false }] ;;
 let read_bmp_msg_peer_type t = match t with
   | 0 -> BMP_MSG_PEER_TYPE_GLOBAL
   | 1 -> BMP_MSG_PEER_TYPE_RD
@@ -153,20 +173,26 @@ let read_bmp_msg_peer_type t = match t with
 type bmp_msg_peer_header = {
   typ: bmp_msg_peer_type;
   flg: int;
-  pd: bytes;
-  addr: bytes;
+  pd: bytes [@printer fun fmt i-> fprintf fmt "%s" (buf_to_string i)];
+  addr: Ipaddr.t;
   peer_as: int32;
-  peer_id: int32;
+  peer_id: Ipaddr.V4.t;
   ts: int32;
   ts_us: int32;
-} [@@deriving show] ;;
+} [@@deriving show { with_path = false }] ;;
 let read_bmp_msg_peer_header buf = 
     let typ = read_bmp_msg_peer_type (Bytes.get_uint8 buf 0) in
     let flg = Bytes.get_uint8 buf 1 in
     let pd = Bytes.sub buf 2 8 in
-    let addr = Bytes.sub buf 10 16 in
+    let addr = Bytes.sub_string buf 10 16 in
+    let addr = if flg land 0b1000000 == 0 then
+      Ipaddr.V4 (Ipaddr.V4.of_octets_exn ~off:12 addr) 
+    else 
+      Ipaddr.V6 (Ipaddr.V6.of_octets_exn addr) 
+    in
     let peer_as = Bytes.get_int32_be buf 26 in
     let peer_id = Bytes.get_int32_be buf 30 in
+    let peer_id = Ipaddr.V4.of_int32 peer_id in
     let ts = Bytes.get_int32_be buf 34 in
     let ts_us = Bytes.get_int32_be buf 38 in
     let rem_len = (Bytes.length buf)-42 in
@@ -176,14 +202,12 @@ let read_bmp_msg_peer_header buf =
     (ret,rem)
 ;;
 
-
-
 type bmp_msg_info_type = 
     BMP_MSG_INFO_STRING
   | BMP_MSG_INFO_SYS_DESCR
   | BMP_MSG_INFO_SYS_NAME
   | BMP_MSG_INFO_UNKNOWN of int
-[@@deriving show] ;;
+[@@deriving show { with_path = false }] ;;
 let read_bmp_msg_info_type t = match t with
   | 0 -> BMP_MSG_INFO_STRING
   | 1 -> BMP_MSG_INFO_SYS_DESCR
@@ -191,7 +215,7 @@ let read_bmp_msg_info_type t = match t with
   | x -> BMP_MSG_INFO_UNKNOWN x
 ;;
 
-type bmp_msg_info = { typ: bmp_msg_info_type; len: int; msg: string} [@@deriving show] ;;
+type bmp_msg_info = { typ: bmp_msg_info_type; len: int; msg: string} [@@deriving show { with_path = false }] ;;
 let read_bmp_msg_info buf offset = 
     let typ = read_bmp_msg_info_type (Bytes.get_uint16_be buf offset) in
     let len = Bytes.get_uint16_be buf (offset+2) in
@@ -203,14 +227,14 @@ let read_bmp_msg_info buf offset =
 let read_bmp_msg_info_list = read_list read_bmp_msg_info
 ;;
 
-type bmp_msg_init = { tlvs: bmp_msg_info list} [@@deriving show] ;;
-let read_bmp_msg_init buf = {tlvs=read_bmp_msg_info_list buf} ;;
+type bmp_msg_init = bmp_msg_info list [@@deriving show { with_path = false }] ;;
+let read_bmp_msg_init = read_bmp_msg_info_list ;;
 
 type bmp_msg_term_type = 
     BMP_MSG_TERM_STRING
   | BMP_MSG_TERM_REASON
   | BMP_MSG_TERM_UNKNOWN of int
-[@@deriving show] ;;
+[@@deriving show { with_path = false }] ;;
 let read_bmp_msg_term_type t = match t with
   | 0 -> BMP_MSG_TERM_STRING
   | 1 -> BMP_MSG_TERM_REASON
@@ -223,7 +247,7 @@ type bmp_msg_term_reason =
   | BMP_MSG_TERM_REASON_OUT_OF_RESOURCE
   | BMP_MSG_TERM_REASON_ADMIN_SHUTDOWN
   | BMP_MSG_TERM_REASON_UNKNOWN of int
-[@@deriving show] ;;
+[@@deriving show { with_path = false }] ;;
 let read_bmp_msg_term_reason t =  match t with
     | 0 -> BMP_MSG_TERM_REASON_CEASED
     | 1 -> BMP_MSG_TERM_REASON_UNSPECIFIED
@@ -232,7 +256,7 @@ let read_bmp_msg_term_reason t =  match t with
     | x -> BMP_MSG_TERM_REASON_UNKNOWN x
 ;;
 
-type bmp_msg_term = { typ: bmp_msg_term_type; len: int; msg: string option; reason: bmp_msg_term_reason option} [@@deriving show] ;;
+type bmp_msg_term = { typ: bmp_msg_term_type; len: int; msg: string option; reason: bmp_msg_term_reason option} [@@deriving show { with_path = false }] ;;
 let read_bmp_msg_term buf = 
   let typ = read_bmp_msg_term_type (Bytes.get_uint16_be buf 0) in
   let len = Bytes.get_uint16_be buf 2 in
@@ -257,7 +281,7 @@ type bmp_msg_stat_entry = {t:int;l:int;v:bytes}
   | STATS_UPDATES_AS_WITHDRAW_PREFIX of int32
   | STATS_DUP_UPDATE of int32
   | BMP_MSG_STAT_UNKNOWN of int * bytes *)
-[@@deriving show] ;;
+[@@deriving show { with_path = false }] ;;
 let read_bmp_msg_stat_entry buf offset = 
   let t = Bytes.get_uint16_be buf offset in
   let l = Bytes.get_uint16_be buf (offset+2) in
@@ -269,7 +293,7 @@ let read_bmp_msg_stat_entry buf offset =
 
 let read_bmp_msg_stat_list = read_list read_bmp_msg_stat_entry
 
-type bmp_msg_stat = { peer_hdr: bmp_msg_peer_header; count: int32; data: bmp_msg_stat_entry list} [@@deriving show] ;;
+type bmp_msg_stat = { peer_hdr: bmp_msg_peer_header; count: int32; data: bmp_msg_stat_entry list} [@@deriving show { with_path = false }] ;;
 let read_bmp_msg_stat buf = 
   let (peer_hdr,buf) = read_bmp_msg_peer_header buf in
   let count = Bytes.get_int32_be buf 0 in
@@ -279,16 +303,21 @@ let read_bmp_msg_stat buf =
 
 type bmp_msg_peer_up = { 
   peer_hdr: bmp_msg_peer_header;
-  local_addr: bytes;
+  local_addr: Ipaddr.t;
   local_port: int;
   remote_port: int;
   sent_open_msg: bgp_msg_open;
   recv_open_msg: bgp_msg_open;
   info: bmp_msg_info list;
-} [@@deriving show] ;;
+} [@@deriving show { with_path = false }] ;;
 let read_bmp_msg_peer_up buf = 
   let (peer_hdr,buf) = read_bmp_msg_peer_header buf in
-  let local_addr = Bytes.sub buf 0 16 in
+  let local_addr = Bytes.sub_string buf 0 16 in
+  let local_addr = if peer_hdr.flg land 0b1000000 == 0 then
+      Ipaddr.V4 (Ipaddr.V4.of_octets_exn ~off:12 local_addr) 
+    else 
+      Ipaddr.V6 (Ipaddr.V6.of_octets_exn local_addr) 
+  in 
   let local_port = Bytes.get_uint16_be buf 16 in
   let remote_port = Bytes.get_uint16_be buf 18 in
   let buf = bytes_remaining buf 20 in
@@ -299,7 +328,7 @@ let read_bmp_msg_peer_up buf =
   {peer_hdr;local_addr;local_port;remote_port;sent_open_msg;recv_open_msg;info}
 ;;
 
-type bmp_msg_peer_down = { peer_hdr: bmp_msg_peer_header; reason: int; data: bytes option} [@@deriving show] ;;
+type bmp_msg_peer_down = { peer_hdr: bmp_msg_peer_header; reason: int; data: bytes option} [@@deriving show { with_path = false }] ;;
 let read_bmp_msg_peer_down buf = 
   let (peer_hdr,buf) = read_bmp_msg_peer_header buf in
   let reason = Bytes.get_uint8 buf 0 in
@@ -313,7 +342,7 @@ let read_bmp_msg_peer_down buf =
   {peer_hdr;reason;data}
 ;;
 
-type bmp_msg_route_monitor = {peer_hdr: bmp_msg_peer_header; update_msg: bgp_msg_update} [@@deriving show] ;;
+type bmp_msg_route_monitor = {peer_hdr: bmp_msg_peer_header; update_msg: bgp_msg_update} [@@deriving show { with_path = false }] ;;
 let read_bmp_msg_route_monitor buf = 
   let (peer_hdr,buf) = read_bmp_msg_peer_header buf in
   let update_msg = read_bgp_msg_update buf in
@@ -329,7 +358,7 @@ type bmp_msg_type =
   | BMP_MSG_TERM
   | BMP_MSG_ROUTE_MIRROR
   | BMP_MSG_UNKNOWN of int
-[@@deriving show] ;;
+[@@deriving show { with_path = false }] ;;
 let read_bmp_msg_type t = match t with
   | 0 -> BMP_MSG_ROUTE_MONITOR
   | 1 -> BMP_MSG_STAT 
@@ -349,7 +378,7 @@ type bmp_msg_payload =
   | BMP_Stat of bmp_msg_stat 
   | BMP_RouteMonitor of bmp_msg_route_monitor 
   | BMP_Unknown of bytes
-[@@deriving show] ;;
+[@@deriving show { with_path = false }] ;;
 let read_bmp_msg_payload t buf = match t with
   | BMP_MSG_INIT -> BMP_Init(read_bmp_msg_init buf)
   | BMP_MSG_TERM -> BMP_Term(read_bmp_msg_term buf)
@@ -360,7 +389,7 @@ let read_bmp_msg_payload t buf = match t with
   | _ -> BMP_Unknown buf
 ;;
 
-type bmp_msg = { ver: int; len: int; typ:bmp_msg_type; payload: bmp_msg_payload } [@@deriving show] ;;
+type bmp_msg = { ver: int; len: int; typ:bmp_msg_type; payload: bmp_msg_payload } [@@deriving show { with_path = false }] ;;
 let read_bmp_msg ic = 
   let ver = input_byte ic in
   let len = input_binary_int ic in
@@ -387,6 +416,9 @@ let () =
   let stream_msg _ = try Some (read_bmp_msg f) with End_of_file -> None in
   let msgs = Stream.from stream_msg in
   (*let print_msg msg = Printf.printf "v=%d t=%d l=%d\n" msg.ver msg.typ msg.len in*)
-  let print_msg msg = match msg.typ with BMP_MSG_ROUTE_MONITOR -> () | _ -> print_endline (show_bmp_msg msg) in
+  let print_msg msg = match msg.typ with 
+      BMP_MSG_ROUTE_MONITOR -> print_endline (show_bmp_msg msg) 
+    | _ -> print_endline (show_bmp_msg msg) 
+  in
   Stream.iter print_msg msgs;
 ;;
