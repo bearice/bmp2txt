@@ -163,7 +163,7 @@ let read_bgp_label_list buf =
     let x = Int32.to_int x in
     let offset = offset+3 in
     let label = x lsr 4 and eol = 1=(x land 1) in
-    if eol then
+    if eol or (label=0) or (label=0x800000) then
       let ret = List.rev (label::hd) and rem = bytes_remaining buf offset in
       (ret,rem)
     else
@@ -179,6 +179,9 @@ type bgp_nlri = {
 };;
 let pp_bgp_nlri fmt e = match (e.afi,e.safi) with
     (IP,MPLSVPN) -> 
+    (* print_endline @@ show_bgp_afi e.afi;
+    print_endline @@ show_bgp_safi e.safi;
+    debug_hex_dump e.pfx; *)
     let (labels,buf) = read_bgp_label_list e.pfx in
     let rd = Bytes.sub buf 0 8 in
     let buf = bytes_remaining buf 8 in
