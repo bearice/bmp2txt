@@ -234,14 +234,14 @@ let read_bgp_nlri_list ?(afi=IP) ?(safi=Unicast) = read_list (fun x->x) (read_bg
 type bgp_mp_next_hop = IP of Ipaddr.V4.t | VPN of bytes*Ipaddr.V4.t | Unknown of bytes [@@deriving show { with_path = false }] ;;
 let bgp_mp_next_hop_to_yojson x = match x with
     IP ip -> ipv4_to_yojson ip
-  (* | VPN (rd,ip) -> ipv4_to_yojson ip *)
-  | _ -> `String (show_bgp_mp_next_hop x)
+  | VPN (rd,ip) -> ipv4_to_yojson ip
+  | Unknown x -> `String (buf_to_string x)
 ;;
 
 type bgp_mp_reach_nlri =  {
   afi: bgp_afi;
   safi: bgp_safi;
-  next_hop: bytes;
+  next_hop: bgp_mp_next_hop;
   nlri: bgp_nlri list;
 } [@@deriving to_yojson, show { with_path = false }] ;;
 
@@ -249,7 +249,7 @@ let read_bgp_mp_reach_nlri buf =
   let afi = Bytes.get_int16_be buf 0 and safi = Bytes.get_uint8 buf 2 in
   let afi = read_bgp_afi afi and safi = read_bgp_safi safi in
   let nh_len = Bytes.get_uint8 buf 3 in
-  let next_hop = Bytes.sub buf 4 nh_len in
+  let next_hop = Unknown (Bytes.sub buf 4 nh_len) in
   let nlri = bytes_remaining buf (nh_len+4+1) in (*+1 to skip the reversed byte*)
   let nlri = read_bgp_nlri_list ~afi ~safi nlri in
   {afi;safi;next_hop;nlri}
@@ -269,6 +269,9 @@ let read_bgp_mp_unreach_nlri buf =
   {afi;safi;nlri}
 ;;
 
+type bgp_ext_cummunities = {raw: bytes} [@@deriving show { with_path = false }] ;;
+let bgp_ext_cummunities_to_yojson x = `String (buf_to_string x.raw);;
+
 type bgp_path_attr =
     ORIGIN of bgp_origin
   | AS_PATH of bgp_as_path_elem list
@@ -282,7 +285,7 @@ type bgp_path_attr =
   | CLUSTER_LIST
   | MP_REACH_NLRI of bgp_mp_reach_nlri
   | MP_UNREACH_NLRI of bgp_mp_unreach_nlri
-  | EXT_COMMUNITIES of bytes
+  | EXT_COMMUNITIES of bgp_ext_cummunities 
   | UNKNOWN of bgp_path_attr_raw [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bgp_path_attr ?(as4=true) raw = match raw.typ with
     1 -> ORIGIN (read_bgp_origin raw.value)
@@ -297,33 +300,40 @@ let read_bgp_path_attr ?(as4=true) raw = match raw.typ with
   | 10 -> CLUSTER_LIST
   | 14 -> MP_REACH_NLRI (read_bgp_mp_reach_nlri raw.value)
   | 15 -> MP_UNREACH_NLRI (read_bgp_mp_unreach_nlri raw.value)
-  | 16 -> EXT_COMMUNITIES raw.value
+  | 16 -> EXT_COMMUNITIES {raw=raw.value}
   | _ -> UNKNOWN raw
 ;;
+(* let bgp_path_attr_to_yojson x = `String (show_bgp_path_attr x);; *)
 
-(* let bgp_path_attr_to_yojson _e = `String "x" *)
-
+type bgp_path_attr_list = bgp_path_attr list [@@deriving show { with_path = false }];;
 let read_bgp_path_attr_list ?(as4=true) = read_list (read_bgp_path_attr ~as4) read_bgp_path_attr_raw
+let bgp_path_attr_list_to_yojson l = 
+  let map_fn x = bgp_path_attr_to_yojson x in
+  let map_fn2 x = match x with `List [name] -> `Assoc [("type",name);("value",`String "")] | `List [name;value] -> `Assoc [("type",name);("value",value)] | _ -> x in
+  let lst = List.map map_fn l in 
+  let lst = List.map map_fn2 lst in 
+  `List lst
+;;
 
 type bgp_msg_update = {
   hdr: bgp_msg_header;
-  withdraw_len: int;
-  withdraw: bgp_nlri list;
-  attr_len: int;
-  attr: bgp_path_attr list;
-  nlri: bgp_nlri list;
+  (* withdraw_len: int; *)
+  withdraws: bgp_nlri list;
+  (* attr_len: int; *)
+  attrs: bgp_path_attr_list;
+  nlris: bgp_nlri list;
 } [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bgp_msg_update ?(as4=true) ?(_ip4=true) buf = 
   let hdr = read_bgp_msg_header buf in
   let buf = bytes_remaining buf 19 in
   (* let _ = debug_hex_dump buf in *)
   let withdraw_len = Bytes.get_uint16_be buf 0 in
-  let withdraw = Bytes.sub buf 2 withdraw_len in
-  let withdraw = read_bgp_nlri_list withdraw in
+  let withdraws = Bytes.sub buf 2 withdraw_len in
+  let withdraws = read_bgp_nlri_list withdraws in
   let buf = bytes_remaining buf (withdraw_len+2) in
   let attr_len = Bytes.get_uint16_be buf 0 in
-  let attr = Bytes.sub buf 2 attr_len in
-  let attr = read_bgp_path_attr_list ~as4:as4 attr in
-  let nlri = bytes_remaining buf (attr_len+2) in
-  let nlri = read_bgp_nlri_list nlri in
-  {hdr;withdraw_len;withdraw;attr_len;attr;nlri}
+  let attrs = Bytes.sub buf 2 attr_len in
+  let attrs = read_bgp_path_attr_list ~as4:as4 attrs in
+  let nlris = bytes_remaining buf (attr_len+2) in
+  let nlris = read_bgp_nlri_list nlris in
+  {hdr;withdraws;attrs;nlris}

@@ -21,15 +21,15 @@ type bmp_peer_header = {
   ts_us: int32;
 } [@@deriving show { with_path = false }] ;;
 let bmp_peer_header_to_yojson x = `Assoc [
-  ("type",bmp_peer_type_to_yojson x.typ);
-  ("flag",`Int x.flg);
-  ("pd",`String (buf_to_string x.pd));
-  ("addr",ip_to_yojson x.addr);
-  ("peer_as",`Intlit (Int32.to_string x.peer_as));
-  ("peer_id",ipv4_to_yojson x.peer_id);
-  ("ts",`Intlit (Int32.to_string x.ts));
-  ("ts_us",`Intlit (Int32.to_string x.ts_us));
-];;
+    ("type",bmp_peer_type_to_yojson x.typ);
+    ("flag",`Int x.flg);
+    ("pd",`String (buf_to_string x.pd));
+    ("addr",ip_to_yojson x.addr);
+    ("peer_as",`Intlit (Int32.to_string x.peer_as));
+    ("peer_id",ipv4_to_yojson x.peer_id);
+    ("ts",`Intlit (Int32.to_string x.ts));
+    ("ts_us",`Intlit (Int32.to_string x.ts_us));
+  ];;
 let read_bmp_peer_header buf = 
   let typ = read_bmp_peer_type (Bytes.get_uint8 buf 0) in
   let flg = Bytes.get_uint8 buf 1 in
@@ -127,7 +127,7 @@ let read_bmp_msg_stat_entry_raw buf offset =
   (tlv,offset)
 ;;
 type bmp_msg_stat_entry = 
-    STATS_PREFIX_REJ of int32
+  | STATS_PREFIX_REJ of int32
   | STATS_DUP_PREFIX of int32
   | STATS_DUP_WITHDRAW of int32
   | STATS_INVALID_CLUSTER_LIST of int32
@@ -136,14 +136,29 @@ type bmp_msg_stat_entry =
   | STATS_INVALID_AS_CONFED_LOOP of int32
   | STATS_NUM_ROUTES_ADJ_RIB_IN of int64
   | STATS_NUM_ROUTES_LOC_RIB of int64
-  | STATS_NUM_ROUTES_ADJ_RIB_IN_PER_AFI of int*int*int64
-  | STATS_NUM_ROUTES_LOC_RIB_PER_AFI of int*int*int64
+  | STATS_NUM_ROUTES_ADJ_RIB_IN_PER_AFI of bgp_afi*bgp_safi*int64
+  | STATS_NUM_ROUTES_LOC_RIB_PER_AFI of bgp_afi*bgp_safi*int64
   | STATS_UPDATES_AS_WITHDRAW of int32
   | STATS_UPDATES_AS_WITHDRAW_PREFIX of int32
   | STATS_DUP_UPDATE of int32
   | STATS_UNKNOWN of bmp_msg_stat_entry_raw
 [@@deriving to_yojson, show { with_path = false }] ;;
-let read_bmp_msg_stat_entry raw = STATS_UNKNOWN raw
+let read_bmp_msg_stat_entry raw = match raw.t with 
+  | 0 -> STATS_PREFIX_REJ (Bytes.get_int32_be raw.v 0)
+  | 1 -> STATS_DUP_PREFIX (Bytes.get_int32_be raw.v 0)
+  | 2 -> STATS_DUP_WITHDRAW (Bytes.get_int32_be raw.v 0)
+  | 3 -> STATS_INVALID_CLUSTER_LIST (Bytes.get_int32_be raw.v 0)
+  | 4 -> STATS_INVALID_AS_PATH_LOOP (Bytes.get_int32_be raw.v 0)
+  | 5 -> STATS_INVALID_ORIGINATOR_ID (Bytes.get_int32_be raw.v 0)
+  | 6 -> STATS_INVALID_AS_CONFED_LOOP (Bytes.get_int32_be raw.v 0)
+  | 7 -> STATS_NUM_ROUTES_ADJ_RIB_IN (Bytes.get_int64_be raw.v 0)
+  | 8 -> STATS_NUM_ROUTES_LOC_RIB (Bytes.get_int64_be raw.v 0)
+  | 9 -> STATS_NUM_ROUTES_ADJ_RIB_IN_PER_AFI ((read_bgp_afi @@ Bytes.get_int16_be raw.v 0),(read_bgp_safi @@ Bytes.get_int8 raw.v 2),(Bytes.get_int64_be raw.v 3))
+  | 10 -> STATS_NUM_ROUTES_LOC_RIB_PER_AFI ((read_bgp_afi @@ Bytes.get_int16_be raw.v 0),(read_bgp_safi @@ Bytes.get_int8 raw.v 2),(Bytes.get_int64_be raw.v 3))
+  | 11 -> STATS_UPDATES_AS_WITHDRAW (Bytes.get_int32_be raw.v 0)
+  | 12 -> STATS_UPDATES_AS_WITHDRAW_PREFIX (Bytes.get_int32_be raw.v 0)
+  | 13 -> STATS_DUP_UPDATE (Bytes.get_int32_be raw.v 0)
+  | _ -> STATS_UNKNOWN raw
 let read_bmp_msg_stat_entry_list = read_list read_bmp_msg_stat_entry read_bmp_msg_stat_entry_raw
 
 type bmp_msg_stat = { peer_hdr: bmp_peer_header; count: int32; data: bmp_msg_stat_entry list} [@@deriving to_yojson, show { with_path = false }] ;;
@@ -183,13 +198,13 @@ let read_bmp_msg_peer_up buf =
 ;;
 
 let bmp_msg_peer_up_to_yojson x = `Assoc [
-  ("peer_hdr",bmp_peer_header_to_yojson x.peer_hdr);
-  ("local_addr",ip_to_yojson x.local_addr);
-  ("local_port",`Int x.local_port);
-  ("remote_port",`Int x.remote_port);
-  ("sent_open_msg",bgp_msg_open_to_yojson x.sent_open_msg);
-  ("recv_open_msg",bgp_msg_open_to_yojson x.recv_open_msg);
-];;
+    ("peer_hdr",bmp_peer_header_to_yojson x.peer_hdr);
+    ("local_addr",ip_to_yojson x.local_addr);
+    ("local_port",`Int x.local_port);
+    ("remote_port",`Int x.remote_port);
+    ("sent_open_msg",bgp_msg_open_to_yojson x.sent_open_msg);
+    ("recv_open_msg",bgp_msg_open_to_yojson x.recv_open_msg);
+  ];;
 
 type bmp_msg_peer_down = { peer_hdr: bmp_peer_header; reason: int; data: bytes option} [@@deriving to_yojson,show { with_path = false }] ;;
 let read_bmp_msg_peer_down buf = 
@@ -226,12 +241,12 @@ let read_bmp_msg_raw buf =
   {ver;len;typ;payload}
 ;;
 (* let bmp_msg_init_to_yojson _x = `String "x";;
-let bmp_msg_term_to_yojson _x = `String "x";;
-let bmp_msg_stat_to_yojson _x = `String "x";;
-let bmp_msg_raw_to_yojson _x  = `String "x";; *)
+   let bmp_msg_term_to_yojson _x = `String "x";;
+   let bmp_msg_stat_to_yojson _x = `String "x";;
+   let bmp_msg_raw_to_yojson _x  = `String "x";; *)
 (* let bmp_msg_peer_up_to_yojson _x       = `String "x";;
-let bmp_msg_peer_down_to_yojson _x     = `String "x";;
-let bmp_msg_route_monitor_to_yojson _x = `String "x";; *)
+   let bmp_msg_peer_down_to_yojson _x     = `String "x";;
+   let bmp_msg_route_monitor_to_yojson _x = `String "x";; *)
 
 type bmp_msg = 
     Init of bmp_msg_init
@@ -244,15 +259,19 @@ type bmp_msg =
 [@@deriving to_yojson, show { with_path = false }] 
 ;;
 
-let bmp_msg_to_yojson msg = match msg with
-  | Init x -> `Assoc [("type",`String "init"); ("message",(bmp_msg_init_to_yojson x))]
-  | Term x -> `Assoc [("type",`String "term"); ("message",(bmp_msg_term_to_yojson x))]
-  | PeerUp x -> `Assoc [("type",`String "peer_up"); ("message",(bmp_msg_peer_up_to_yojson x))]
-  | PeerDown x -> `Assoc [("type",`String "peer_dn"); ("message",(bmp_msg_peer_down_to_yojson x))]
-  | Stat x -> `Assoc [("type",`String "stat"); ("message",(bmp_msg_stat_to_yojson x))]
-  | RouteMonitor x -> `Assoc [("type",`String "route_monitor"); ("message",(bmp_msg_route_monitor_to_yojson x))]
-  | Unknown x -> `Assoc [("type",`String "unknown"); ("message",(bmp_msg_raw_to_yojson x))]
-
+let obj_lst x = match x with `Assoc a -> a | _ -> [] ;;
+let add_typ t x = ("type",`String t) :: (obj_lst x)
+let bmp_msg_to_yojson msg =
+  let kv = match msg with
+    | Init x -> add_typ "init" @@ bmp_msg_init_to_yojson x
+    | Term x -> add_typ "term" @@ bmp_msg_term_to_yojson x
+    | PeerUp x -> add_typ "peer_up" @@ bmp_msg_peer_up_to_yojson x
+    | PeerDown x -> add_typ "peer_dn" @@ bmp_msg_peer_down_to_yojson x
+    | Stat x -> add_typ "stat" @@ bmp_msg_stat_to_yojson x
+    | RouteMonitor x -> add_typ "route_monitor" @@ bmp_msg_route_monitor_to_yojson x
+    | Unknown x -> add_typ "unknown" @@ bmp_msg_raw_to_yojson x
+  in
+  `Assoc kv
 let read_bmp_msg raw = match raw.typ with
   | 0 -> RouteMonitor(read_bmp_msg_route_monitor raw.payload)
   | 1 -> Stat(read_bmp_msg_stat raw.payload)
