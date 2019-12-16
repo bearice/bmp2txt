@@ -85,30 +85,34 @@ let parse_msg msg =
   let buf = split_hdr buf 0 in
   let raw = read_bmp_msg_raw buf in
   try
-    let msg = read_bmp_msg raw in
-    Lwt_io.printl @@ show_bmp_msg msg;
-    (* Lwt.return () *)
+    Lwt.return @@ read_bmp_msg raw
+  (* Lwt.return () *)
   with e ->
     let _ = print_endline @@ show_bmp_msg_raw raw in
     Utils.debug_hex_dump buf;
     raise e
 
+let print_msg_json msg = 
+  Yojson.Safe.to_string @@ bmp_msg_to_yojson msg;;
+
 let print_msg = function
-  | Kafka.Message (_,_,_,msg,_) -> parse_msg msg
-  | Kafka.PartitionEnd (topic,partition,offset) ->
-    Lwt_io.printf "%s,%d,%Ld (EOP)\n%!" (Kafka.topic_name topic) partition offset
+  | Kafka.Message (_,_,_,msg,_) -> 
+    parse_msg msg >>= fun msg -> Lwt_io.printl @@ print_msg_json msg ;
+  (* | Kafka.PartitionEnd (topic,partition,offset) ->
+    Lwt_io.printf "%s,%d,%Ld (EOP)\n%!" (Kafka.topic_name topic) partition offset *)
+  | _ -> return ()
 
 let kafka_main () =
   (* Prepare a consumer handler *)
-  let consumer = Kafka.new_consumer ["metadata.broker.list","b-3.infra-monitor.prd4u3.c4.kafka.ap-northeast-1.amazonaws.com:9092"] in
+  let consumer = Kafka.new_consumer ["bootstrap.servers","b-3.infra-monitor.prd4u3.c4.kafka.ap-northeast-1.amazonaws.com:9092"] in
   let topic = Kafka.new_topic consumer "openbmp.bmp_raw" ["auto.commit.enable","false"] in
   let queue = Kafka.new_queue consumer in
   let partitions = (Kafka.topic_metadata consumer topic).topic_partitions in
   let timeout_ms = 1000 in
   let msg_count = 10 in
   let start () =
-    List.iter (fun partition -> Kafka.consume_start_queue queue topic partition Kafka.offset_beginning) partitions
-    |> return
+    List.iter (fun partition -> Kafka.consume_start_queue queue topic partition Kafka.offset_end) partitions;
+    return ()
   in
   let rec loop () = 
     Kafka_lwt.consume_batch_queue ~timeout_ms ~msg_count queue

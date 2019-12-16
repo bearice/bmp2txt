@@ -1,5 +1,5 @@
 open Utils;;
-type bgp_msg_type = BGP_MSG_OPEN | BGP_MSG_UPDATE | BGP_MSG_NOTIFICATION | BGP_MSG_KEEPALIVE | BGP_MSG_UNKNOWN of int [@@deriving show { with_path = false }];;
+type bgp_msg_type = BGP_MSG_OPEN | BGP_MSG_UPDATE | BGP_MSG_NOTIFICATION | BGP_MSG_KEEPALIVE | BGP_MSG_UNKNOWN of int [@@deriving to_yojson, show { with_path = false }];;
 let read_bgp_msg_type t = match t with
   | 1 -> BGP_MSG_OPEN
   | 2 -> BGP_MSG_UPDATE
@@ -7,12 +7,14 @@ let read_bgp_msg_type t = match t with
   | 4 -> BGP_MSG_KEEPALIVE
   | x -> BGP_MSG_UNKNOWN x
 ;;
+let bgp_msg_type_to_yojson t = `String (show_bgp_msg_type t)
 
 type bgp_msg_header = {
   marker: bytes [@printer fun fmt i-> fprintf fmt "%s" (buf_to_string i)];
   len: int;
   typ: bgp_msg_type;
 } [@@deriving show { with_path = false }] ;;
+let bgp_msg_header_to_yojson hdr = bgp_msg_type_to_yojson hdr.typ;;
 let read_bgp_msg_header buf = 
   let marker = Bytes.sub buf 0 16 in
   let len = Bytes.get_uint16_be buf 16 in
@@ -22,14 +24,16 @@ let read_bgp_msg_header buf =
 
 type bgp_afi = IP | IPv6 | L2VPN | Unknown of int [@@deriving show { with_path = false }];;
 let read_bgp_afi x = match x with 1 -> IP | 2 -> IPv6 | 25 -> L2VPN | x -> Unknown x ;;
+let bgp_afi_to_yojson t = `String (show_bgp_afi t)
 type bgp_safi = Unicast | Multicast | MLPSLable | VPLS | EVPN | MPLSVPN | Unknown of int [@@deriving show { with_path = false }];;
 let read_bgp_safi x = match x with 1 -> Unicast | 2 -> Multicast | 4 -> MLPSLable | 65 -> VPLS | 70 -> EVPN | 128 -> MPLSVPN | x -> Unknown x ;;
+let bgp_safi_to_yojson t = `String (show_bgp_safi t)
 
 type bgp_capability_raw = {
   typ: int;
   len: int;
   msg: bytes [@printer fun fmt i-> fprintf fmt "%s" (buf_to_string i)];
-} [@@deriving show { with_path = false }] ;;
+} [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bgp_capability_raw buf = 
   let typ = Bytes.get_uint8 buf 0 in 
   let len = Bytes.get_uint8 buf 1 in
@@ -45,7 +49,7 @@ type bgp_capability =
   | AS4 of int32
   | LLGR of bgp_capability_raw
   | Unknown of bgp_capability_raw 
-[@@deriving show { with_path = false }] ;;
+[@@deriving to_yojson, show { with_path = false }] ;;
 let read_bgp_capability raw = match raw.typ with
     1  ->
     let afi = Bytes.get_int16_be raw.msg 0 and safi = Bytes.get_uint8 raw.msg 3 in
@@ -61,7 +65,7 @@ type bgp_msg_open_params_raw = {
   typ: int;
   len: int;
   msg: bytes [@printer fun fmt i-> fprintf fmt "%s" (buf_to_string i)];
-} [@@deriving show { with_path = false }] ;;
+} [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bgp_msg_open_params_raw buf offset = 
   let typ = Bytes.get_uint8 buf (offset+0) in 
   let len = Bytes.get_uint8 buf (offset+1) in
@@ -71,7 +75,7 @@ let read_bgp_msg_open_params_raw buf offset =
   (tlv,offset)
 ;;
 
-type bgp_msg_open_params = Capability of bgp_capability | Unknown of bgp_msg_open_params_raw [@@deriving show { with_path = false }] ;;
+type bgp_msg_open_params = Capability of bgp_capability | Unknown of bgp_msg_open_params_raw [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bgp_msg_open_params raw = match raw.typ with
     2 -> Capability (read_bgp_capability (read_bgp_capability_raw raw.msg))
   | _ -> Unknown raw
@@ -80,7 +84,7 @@ let read_bgp_msg_open_params raw = match raw.typ with
 let read_bgp_msg_open_params_list = read_list read_bgp_msg_open_params read_bgp_msg_open_params_raw
 
 type bgp_msg_open = { 
-  bgp_hdr: bgp_msg_header;
+  hdr: bgp_msg_header;
   ver: int;
   my_as: int;   
   hold_time : int;
@@ -89,7 +93,7 @@ type bgp_msg_open = {
   opts: bgp_msg_open_params list;
 } [@@deriving show { with_path = false }] ;; 
 let read_bgp_msg_open buf = 
-  let bgp_hdr = read_bgp_msg_header buf in
+  let hdr = read_bgp_msg_header buf in
   let buf = bytes_remaining buf 19 in
   (* let _ = debug_hex_dump buf in *)
   let ver = Bytes.get_uint8 buf 0 in
@@ -101,17 +105,26 @@ let read_bgp_msg_open buf =
   let opts = read_bgp_msg_open_params_list opt_buf in
   let offset = 10+opt_len in
   let buf = Bytes.sub buf offset ((Bytes.length buf)-offset) in
-  let ret = {bgp_hdr;ver;my_as;hold_time;bgp_identifier;opt_len;opts} in
+  let ret = {hdr;ver;my_as;hold_time;bgp_identifier;opt_len;opts} in
   (* print_endline (show_bgp_msg_open ret); *)
   (ret,buf)
 ;;
+
+let bgp_msg_open_to_yojson x = `Assoc [
+  ("hdr",bgp_msg_header_to_yojson x.hdr);
+  ("ver",`Int x.ver);
+  ("my_as",`Int x.my_as);
+  ("hold_time",`Int x.hold_time);
+  ("bgp_identifier",ipv4_to_yojson x.bgp_identifier);
+  ("opts",`List (List.map bgp_msg_open_params_to_yojson x.opts));
+];;
 
 type bgp_path_attr_raw = {
   flg:int [@printer fun fmt i-> fprintf fmt "%s" (show_flags i)];
   typ:int;
   len:int;
   value:bytes [@printer fun fmt i-> fprintf fmt "%s" (buf_to_string i)];
-} [@@deriving show { with_path = false }] ;;
+} [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bgp_path_attr_raw buf offset = 
   let flg = Bytes.get_uint8 buf (offset+0) in
   let typ = Bytes.get_uint8 buf (offset+1) in
@@ -125,7 +138,7 @@ let read_bgp_path_attr_raw buf offset =
     ({flg;typ;len;value},offset+3+len)
 ;;
 
-type bgp_origin = IGP | EGP | INCOMPLETE | UNKNOWN of int [@@deriving show { with_path = false }];;
+type bgp_origin = IGP | EGP | INCOMPLETE | UNKNOWN of int [@@deriving to_yojson, show { with_path = false }];;
 let read_bgp_origin buf = match Bytes.get_int8 buf 0 with
     0 -> IGP
   | 1 -> EGP
@@ -133,7 +146,7 @@ let read_bgp_origin buf = match Bytes.get_int8 buf 0 with
   | x -> UNKNOWN x
 ;;
 
-type bgp_as_path_elem = AS_SET of int32 list | AS_SEQ of int32 list | UNKNOWN of int [@@deriving show { with_path = false }];;
+type bgp_as_path_elem = AS_SET of int32 list | AS_SEQ of int32 list | UNKNOWN of int [@@deriving to_yojson, show { with_path = false }];;
 let read_bgp_as_path_elem ?(as4=true) buf offset = 
   let t = Bytes.get_uint8 buf (offset+0) in
   let l = Bytes.get_uint8 buf (offset+1) in
@@ -154,7 +167,7 @@ let read_bgp_as_path_elem ?(as4=true) buf offset =
 ;;
 let read_bgp_as_path_list ?(as4=true) = read_list (fun x->x) (read_bgp_as_path_elem ~as4) ;;
 
-type bgp_label_list = int list [@@deriving show { with_path = false }];;
+type bgp_label_list = int list [@@deriving to_yojson, show { with_path = false }];;
 let read_bgp_label_list buf = 
   let rec read_label hd offset =
     let x = Bytes.sub buf offset 3 in
@@ -163,7 +176,7 @@ let read_bgp_label_list buf =
     let x = Int32.to_int x in
     let offset = offset+3 in
     let label = x lsr 4 and eol = 1=(x land 1) in
-    if eol or (label=0) or (label=0x800000) then
+    if eol || (label=0) || (label=0x800000) then
       let ret = List.rev (label::hd) and rem = bytes_remaining buf offset in
       (ret,rem)
     else
@@ -176,8 +189,8 @@ type bgp_nlri = {
   safi: bgp_safi;
   len:int;
   pfx:bytes;
-};;
-let pp_bgp_nlri fmt e = match (e.afi,e.safi) with
+}[@@deriving to_yojson];;
+let show_bgp_nlri e = match (e.afi,e.safi) with
     (IP,MPLSVPN) -> 
     (* print_endline @@ show_bgp_afi e.afi;
     print_endline @@ show_bgp_safi e.safi;
@@ -190,22 +203,23 @@ let pp_bgp_nlri fmt e = match (e.afi,e.safi) with
     let padlen = 4-l in
     let buf = Bytes.extend buf 0 padlen in
     let ip4 = Ipaddr.V4.of_int32 (Bytes.get_int32_be buf 0) in
-    Format.fprintf fmt "L=%s RD=%s P=%s/%d" (show_bgp_label_list labels) (buf_to_string rd) (Ipaddr.V4.to_string ip4) plen 
+    Printf.sprintf "L=%s RD=%s P=%s/%d" (show_bgp_label_list labels) (buf_to_string rd) (Ipaddr.V4.to_string ip4) plen 
   | (IP,Unicast) -> 
     let l = Bytes.length e.pfx in
     let padlen = 4-l in
     let buf = Bytes.extend e.pfx 0 padlen in
     let ip4 = Ipaddr.V4.of_octets_exn (Bytes.to_string buf) in
-    Format.fprintf fmt "%s/%d" (Ipaddr.V4.to_string ip4) e.len 
+    Printf.sprintf "%s/%d" (Ipaddr.V4.to_string ip4) e.len 
   | (IPv6,Unicast) ->
     let l = Bytes.length e.pfx in
     let padlen = 16-l in
     let buf = Bytes.extend e.pfx 0 padlen in
     let ip4 = Ipaddr.V6.of_octets_exn (Bytes.to_string buf) in
-    Format.fprintf fmt "%s/%d" (Ipaddr.V6.to_string ip4) e.len 
-  | _ -> Format.fprintf fmt "%s/%d" (buf_to_string e.pfx) e.len 
+    Printf.sprintf "%s/%d" (Ipaddr.V6.to_string ip4) e.len 
+  | _ -> Printf.sprintf "%s/%d" (buf_to_string e.pfx) e.len 
 ;;
-
+let pp_bgp_nlri fmt e = Format.fprintf fmt "%s" (show_bgp_nlri e);;
+let bgp_nlri_to_yojson e = `String (show_bgp_nlri e);;
 let read_bgp_nlri ?(afi=IP) ?(safi=Unicast) buf offset = 
   let len = Bytes.get_uint8 buf (offset+0) in
   let blen = if len = 0 then 0 else ((len-1)/8)+1 in
@@ -217,13 +231,19 @@ let read_bgp_nlri ?(afi=IP) ?(safi=Unicast) buf offset =
 ;;
 let read_bgp_nlri_list ?(afi=IP) ?(safi=Unicast) = read_list (fun x->x) (read_bgp_nlri ~afi ~safi)
 
-type bgp_mp_next_hop = VPN of bytes*Ipaddr.t | Unknown of bytes
+type bgp_mp_next_hop = IP of Ipaddr.V4.t | VPN of bytes*Ipaddr.V4.t | Unknown of bytes [@@deriving show { with_path = false }] ;;
+let bgp_mp_next_hop_to_yojson x = match x with
+    IP ip -> ipv4_to_yojson ip
+  (* | VPN (rd,ip) -> ipv4_to_yojson ip *)
+  | _ -> `String (show_bgp_mp_next_hop x)
+;;
+
 type bgp_mp_reach_nlri =  {
   afi: bgp_afi;
   safi: bgp_safi;
   next_hop: bytes;
   nlri: bgp_nlri list;
-} [@@deriving show { with_path = false }] ;;
+} [@@deriving to_yojson, show { with_path = false }] ;;
 
 let read_bgp_mp_reach_nlri buf = 
   let afi = Bytes.get_int16_be buf 0 and safi = Bytes.get_uint8 buf 2 in
@@ -239,7 +259,7 @@ type bgp_mp_unreach_nlri =  {
   afi: bgp_afi;
   safi: bgp_safi;
   nlri: bgp_nlri list;
-} [@@deriving show { with_path = false }] ;;
+} [@@deriving to_yojson, show { with_path = false }] ;;
 
 let read_bgp_mp_unreach_nlri buf = 
   let afi = Bytes.get_int16_be buf 0 and safi = Bytes.get_uint8 buf 2 in
@@ -252,7 +272,7 @@ let read_bgp_mp_unreach_nlri buf =
 type bgp_path_attr =
     ORIGIN of bgp_origin
   | AS_PATH of bgp_as_path_elem list
-  | NEXT_HOP of Ipaddr.V4.t
+  | NEXT_HOP of bgp_mp_next_hop
   | MULTI_EXIT_DISC of int32
   | LOCAL_PREF of int32
   | ATOMIC_AGGREGATE 
@@ -263,11 +283,11 @@ type bgp_path_attr =
   | MP_REACH_NLRI of bgp_mp_reach_nlri
   | MP_UNREACH_NLRI of bgp_mp_unreach_nlri
   | EXT_COMMUNITIES of bytes
-  | UNKNOWN of bgp_path_attr_raw [@@deriving show { with_path = false }] ;;
+  | UNKNOWN of bgp_path_attr_raw [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bgp_path_attr ?(as4=true) raw = match raw.typ with
     1 -> ORIGIN (read_bgp_origin raw.value)
   | 2 -> AS_PATH (read_bgp_as_path_list ~as4 raw.value)
-  | 3 -> NEXT_HOP (Ipaddr.V4.of_octets_exn (Bytes.to_string raw.value))
+  | 3 -> NEXT_HOP (IP(Ipaddr.V4.of_octets_exn (Bytes.to_string raw.value)))
   | 4 -> MULTI_EXIT_DISC (Bytes.get_int32_be raw.value 0)
   | 5 -> LOCAL_PREF (Bytes.get_int32_be raw.value 0)
   | 6 -> ATOMIC_AGGREGATE
@@ -281,6 +301,8 @@ let read_bgp_path_attr ?(as4=true) raw = match raw.typ with
   | _ -> UNKNOWN raw
 ;;
 
+(* let bgp_path_attr_to_yojson _e = `String "x" *)
+
 let read_bgp_path_attr_list ?(as4=true) = read_list (read_bgp_path_attr ~as4) read_bgp_path_attr_raw
 
 type bgp_msg_update = {
@@ -290,7 +312,7 @@ type bgp_msg_update = {
   attr_len: int;
   attr: bgp_path_attr list;
   nlri: bgp_nlri list;
-} [@@deriving show { with_path = false }] ;;
+} [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bgp_msg_update ?(as4=true) ?(_ip4=true) buf = 
   let hdr = read_bgp_msg_header buf in
   let buf = bytes_remaining buf 19 in

@@ -8,6 +8,7 @@ let read_bmp_peer_type t = match t with
   | 2 -> PEER_TYPE_LOCAL
   | x -> PEER_TYPE_UNKNOWN x
 ;;
+let bmp_peer_type_to_yojson t = `String (show_bmp_peer_type t)
 
 type bmp_peer_header = {
   typ: bmp_peer_type;
@@ -19,6 +20,16 @@ type bmp_peer_header = {
   ts: int32;
   ts_us: int32;
 } [@@deriving show { with_path = false }] ;;
+let bmp_peer_header_to_yojson x = `Assoc [
+  ("type",bmp_peer_type_to_yojson x.typ);
+  ("flag",`Int x.flg);
+  ("pd",`String (buf_to_string x.pd));
+  ("addr",ip_to_yojson x.addr);
+  ("peer_as",`Intlit (Int32.to_string x.peer_as));
+  ("peer_id",ipv4_to_yojson x.peer_id);
+  ("ts",`Intlit (Int32.to_string x.ts));
+  ("ts_us",`Intlit (Int32.to_string x.ts_us));
+];;
 let read_bmp_peer_header buf = 
   let typ = read_bmp_peer_type (Bytes.get_uint8 buf 0) in
   let flg = Bytes.get_uint8 buf 1 in
@@ -42,7 +53,7 @@ let read_bmp_peer_header buf =
 ;;
 
 
-type bmp_info_raw = { typ: int; len: int; msg: string} [@@deriving show { with_path = false }] ;;
+type bmp_info_raw = { typ: int; len: int; msg: string} [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_info_raw buf offset = 
   let typ = Bytes.get_uint16_be buf offset in
   let len = Bytes.get_uint16_be buf (offset+2) in
@@ -58,7 +69,7 @@ type bmp_info =
   | SysDescr of string
   | SysName of string
   | Unknown of bmp_info_raw
-[@@deriving show { with_path = false }] ;;
+[@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_info raw = match raw.typ with
   | 0 -> String raw.msg
   | 1 -> SysDescr raw.msg
@@ -68,14 +79,14 @@ let read_bmp_info raw = match raw.typ with
 
 let read_bmp_info_list = read_list read_bmp_info read_bmp_info_raw ;;
 
-type bmp_msg_init = bmp_info list [@@deriving show { with_path = false }] ;;
+type bmp_msg_init = bmp_info list [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_msg_init = read_bmp_info_list ;;
 
 type bmp_msg_term_type = 
     BMP_MSG_TERM_STRING
   | BMP_MSG_TERM_REASON
   | BMP_MSG_TERM_UNKNOWN of int
-[@@deriving show { with_path = false }] ;;
+[@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_msg_term_type t = match t with
   | 0 -> BMP_MSG_TERM_STRING
   | 1 -> BMP_MSG_TERM_REASON
@@ -88,7 +99,7 @@ type bmp_msg_term_reason =
   | BMP_MSG_TERM_REASON_OUT_OF_RESOURCE
   | BMP_MSG_TERM_REASON_ADMIN_SHUTDOWN
   | BMP_MSG_TERM_REASON_UNKNOWN of int
-[@@deriving show { with_path = false }] ;;
+[@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_msg_term_reason t =  match t with
   | 0 -> BMP_MSG_TERM_REASON_CEASED
   | 1 -> BMP_MSG_TERM_REASON_UNSPECIFIED
@@ -97,7 +108,7 @@ let read_bmp_msg_term_reason t =  match t with
   | x -> BMP_MSG_TERM_REASON_UNKNOWN x
 ;;
 
-type bmp_msg_term = { typ: bmp_msg_term_type; len: int; msg: string option; reason: bmp_msg_term_reason option} [@@deriving show { with_path = false }] ;;
+type bmp_msg_term = { typ: bmp_msg_term_type; len: int; msg: string option; reason: bmp_msg_term_reason option} [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_msg_term buf = 
   let typ = read_bmp_msg_term_type (Bytes.get_uint16_be buf 0) in
   let len = Bytes.get_uint16_be buf 2 in
@@ -106,7 +117,7 @@ let read_bmp_msg_term buf =
   {typ;len;msg;reason}
 ;;
 
-type bmp_msg_stat_entry_raw = {t:int;l:int;v:bytes} [@@deriving show { with_path = false }] ;;
+type bmp_msg_stat_entry_raw = {t:int;l:int;v:bytes} [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_msg_stat_entry_raw buf offset = 
   let t = Bytes.get_uint16_be buf offset in
   let l = Bytes.get_uint16_be buf (offset+2) in
@@ -131,17 +142,16 @@ type bmp_msg_stat_entry =
   | STATS_UPDATES_AS_WITHDRAW_PREFIX of int32
   | STATS_DUP_UPDATE of int32
   | STATS_UNKNOWN of bmp_msg_stat_entry_raw
-[@@deriving show { with_path = false }] ;;
+[@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_msg_stat_entry raw = STATS_UNKNOWN raw
+let read_bmp_msg_stat_entry_list = read_list read_bmp_msg_stat_entry read_bmp_msg_stat_entry_raw
 
-let read_bmp_msg_stat_list = read_list read_bmp_msg_stat_entry read_bmp_msg_stat_entry_raw
-
-type bmp_msg_stat = { peer_hdr: bmp_peer_header; count: int32; data: bmp_msg_stat_entry list} [@@deriving show { with_path = false }] ;;
+type bmp_msg_stat = { peer_hdr: bmp_peer_header; count: int32; data: bmp_msg_stat_entry list} [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_msg_stat buf = 
   let (peer_hdr,buf) = read_bmp_peer_header buf in
   let count = Bytes.get_int32_be buf 0 in
   let buf = bytes_remaining buf 4 in
-  let data = read_bmp_msg_stat_list buf in
+  let data = read_bmp_msg_stat_entry_list buf in
   {peer_hdr;count;data}
 
 type bmp_msg_peer_up = { 
@@ -153,6 +163,7 @@ type bmp_msg_peer_up = {
   recv_open_msg: bgp_msg_open;
   info: bmp_info list;
 } [@@deriving show { with_path = false }] ;;
+
 let read_bmp_msg_peer_up buf = 
   let (peer_hdr,buf) = read_bmp_peer_header buf in
   let local_addr = Bytes.sub_string buf 0 16 in
@@ -171,7 +182,16 @@ let read_bmp_msg_peer_up buf =
   {peer_hdr;local_addr;local_port;remote_port;sent_open_msg;recv_open_msg;info}
 ;;
 
-type bmp_msg_peer_down = { peer_hdr: bmp_peer_header; reason: int; data: bytes option} [@@deriving show { with_path = false }] ;;
+let bmp_msg_peer_up_to_yojson x = `Assoc [
+  ("peer_hdr",bmp_peer_header_to_yojson x.peer_hdr);
+  ("local_addr",ip_to_yojson x.local_addr);
+  ("local_port",`Int x.local_port);
+  ("remote_port",`Int x.remote_port);
+  ("sent_open_msg",bgp_msg_open_to_yojson x.sent_open_msg);
+  ("recv_open_msg",bgp_msg_open_to_yojson x.recv_open_msg);
+];;
+
+type bmp_msg_peer_down = { peer_hdr: bmp_peer_header; reason: int; data: bytes option} [@@deriving to_yojson,show { with_path = false }] ;;
 let read_bmp_msg_peer_down buf = 
   let (peer_hdr,buf) = read_bmp_peer_header buf in
   let reason = Bytes.get_uint8 buf 0 in
@@ -185,14 +205,17 @@ let read_bmp_msg_peer_down buf =
   {peer_hdr;reason;data}
 ;;
 
-type bmp_msg_route_monitor = {peer_hdr: bmp_peer_header; update_msg: bgp_msg_update} [@@deriving show { with_path = false }] ;;
+type bmp_msg_route_monitor = {
+  peer_hdr: bmp_peer_header; 
+  update_msg: bgp_msg_update [@to_yojson fun _x -> `String "x"];
+} [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_msg_route_monitor buf = 
   let (peer_hdr,buf) = read_bmp_peer_header buf in
   let update_msg = read_bgp_msg_update buf in
   {peer_hdr;update_msg}
 ;;
 
-type bmp_msg_raw = { ver: int; len: int; typ:int; payload:bytes } [@@deriving show { with_path = false }] ;;
+type bmp_msg_raw = { ver: int; len: int; typ:int; payload:bytes } [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_msg_raw buf = 
   let open Bytes in
   let ver = get_uint8 buf 0 in
@@ -202,16 +225,33 @@ let read_bmp_msg_raw buf =
   let payload = bytes_remaining buf 6 in
   {ver;len;typ;payload}
 ;;
+(* let bmp_msg_init_to_yojson _x = `String "x";;
+let bmp_msg_term_to_yojson _x = `String "x";;
+let bmp_msg_stat_to_yojson _x = `String "x";;
+let bmp_msg_raw_to_yojson _x  = `String "x";; *)
+(* let bmp_msg_peer_up_to_yojson _x       = `String "x";;
+let bmp_msg_peer_down_to_yojson _x     = `String "x";;
+let bmp_msg_route_monitor_to_yojson _x = `String "x";; *)
 
 type bmp_msg = 
-    Init of bmp_msg_init 
-  | Term of bmp_msg_term 
-  | PeerUp of bmp_msg_peer_up 
-  | PeerDown of bmp_msg_peer_down 
-  | Stat of bmp_msg_stat 
-  | RouteMonitor of bmp_msg_route_monitor 
+    Init of bmp_msg_init
+  | Term of bmp_msg_term
+  | PeerUp of bmp_msg_peer_up
+  | PeerDown of bmp_msg_peer_down
+  | Stat of bmp_msg_stat
+  | RouteMonitor of bmp_msg_route_monitor
   | Unknown of bmp_msg_raw
-[@@deriving show { with_path = false }] ;;
+[@@deriving to_yojson, show { with_path = false }] 
+;;
+
+let bmp_msg_to_yojson msg = match msg with
+  | Init x -> `Assoc [("type",`String "init"); ("message",(bmp_msg_init_to_yojson x))]
+  | Term x -> `Assoc [("type",`String "term"); ("message",(bmp_msg_term_to_yojson x))]
+  | PeerUp x -> `Assoc [("type",`String "peer_up"); ("message",(bmp_msg_peer_up_to_yojson x))]
+  | PeerDown x -> `Assoc [("type",`String "peer_dn"); ("message",(bmp_msg_peer_down_to_yojson x))]
+  | Stat x -> `Assoc [("type",`String "stat"); ("message",(bmp_msg_stat_to_yojson x))]
+  | RouteMonitor x -> `Assoc [("type",`String "route_monitor"); ("message",(bmp_msg_route_monitor_to_yojson x))]
+  | Unknown x -> `Assoc [("type",`String "unknown"); ("message",(bmp_msg_raw_to_yojson x))]
 
 let read_bmp_msg raw = match raw.typ with
   | 0 -> RouteMonitor(read_bmp_msg_route_monitor raw.payload)

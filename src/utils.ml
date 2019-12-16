@@ -30,3 +30,8 @@ let read_list map_fn parser_fn buf =
     in
     List.rev_map map_fn @@ read_list_rec [] 0
 ;;
+
+let ip_to_yojson ip = `String (Ipaddr.to_string ip);;
+let ipv4_to_yojson ip = `String (Ipaddr.V4.to_string ip);;
+let ipv6_to_yojson ip = `String (Ipaddr.V6.to_string ip);;
+
