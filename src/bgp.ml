@@ -124,7 +124,8 @@ type bgp_path_attr_raw = {
   typ:int;
   len:int;
   value:bytes [@printer fun fmt i-> fprintf fmt "%s" (buf_to_string i)];
-} [@@deriving to_yojson, show { with_path = false }] ;;
+} [@@deriving show { with_path = false }] ;;
+let bgp_path_attr_raw_to_yojson x = `String (show_bgp_path_attr_raw x);;
 let read_bgp_path_attr_raw buf offset = 
   let flg = Bytes.get_uint8 buf (offset+0) in
   let typ = Bytes.get_uint8 buf (offset+1) in
@@ -234,7 +235,7 @@ let read_bgp_nlri_list ?(afi=IP) ?(safi=Unicast) = read_list (fun x->x) (read_bg
 type bgp_mp_next_hop = IP of Ipaddr.V4.t | VPN of bytes*Ipaddr.V4.t | Unknown of bytes [@@deriving show { with_path = false }] ;;
 let bgp_mp_next_hop_to_yojson x = match x with
     IP ip -> ipv4_to_yojson ip
-  | VPN (rd,ip) -> ipv4_to_yojson ip
+  | VPN (_rd,ip) -> ipv4_to_yojson ip
   | Unknown x -> `String (buf_to_string x)
 ;;
 
@@ -286,7 +287,8 @@ type bgp_path_attr =
   | MP_REACH_NLRI of bgp_mp_reach_nlri
   | MP_UNREACH_NLRI of bgp_mp_unreach_nlri
   | EXT_COMMUNITIES of bgp_ext_cummunities 
-  | UNKNOWN of bgp_path_attr_raw [@@deriving to_yojson, show { with_path = false }] ;;
+  | UNKNOWN of bgp_path_attr_raw 
+[@@deriving to_yojson, show { with_path = false }] ;;
 let read_bgp_path_attr ?(as4=true) raw = match raw.typ with
     1 -> ORIGIN (read_bgp_origin raw.value)
   | 2 -> AS_PATH (read_bgp_as_path_list ~as4 raw.value)
@@ -308,10 +310,11 @@ let read_bgp_path_attr ?(as4=true) raw = match raw.typ with
 type bgp_path_attr_list = bgp_path_attr list [@@deriving show { with_path = false }];;
 let read_bgp_path_attr_list ?(as4=true) = read_list (read_bgp_path_attr ~as4) read_bgp_path_attr_raw
 let bgp_path_attr_list_to_yojson l = 
-  let map_fn x = bgp_path_attr_to_yojson x in
-  let map_fn2 x = match x with `List [name] -> `Assoc [("type",name);("value",`String "")] | `List [name;value] -> `Assoc [("type",name);("value",value)] | _ -> x in
+  let map_fn x = match bgp_path_attr_to_yojson x with
+    | `List [name] ->  `Assoc [("type",name);("value",`String "")]
+    | `List [name;value] -> `Assoc [("type",name);("value",value)] 
+    | x -> x in
   let lst = List.map map_fn l in 
-  let lst = List.map map_fn2 lst in 
   `List lst
 ;;
 

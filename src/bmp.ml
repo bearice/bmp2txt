@@ -159,9 +159,23 @@ let read_bmp_msg_stat_entry raw = match raw.t with
   | 12 -> STATS_UPDATES_AS_WITHDRAW_PREFIX (Bytes.get_int32_be raw.v 0)
   | 13 -> STATS_DUP_UPDATE (Bytes.get_int32_be raw.v 0)
   | _ -> STATS_UNKNOWN raw
-let read_bmp_msg_stat_entry_list = read_list read_bmp_msg_stat_entry read_bmp_msg_stat_entry_raw
 
-type bmp_msg_stat = { peer_hdr: bmp_peer_header; count: int32; data: bmp_msg_stat_entry list} [@@deriving to_yojson, show { with_path = false }] ;;
+type bmp_msg_stat_entry_list = bmp_msg_stat_entry list [@@deriving to_yojson, show { with_path = false }] ;;
+let read_bmp_msg_stat_entry_list = read_list read_bmp_msg_stat_entry read_bmp_msg_stat_entry_raw
+let bmp_msg_stat_entry_list_to_yojson l = 
+  let map_fn x = match bmp_msg_stat_entry_to_yojson x with
+    | `List [name;value] -> `Assoc [("type",name);("value",value)] 
+    | `List [name;afi;safi;value] -> `Assoc [("type",name);("afi",afi);("safi",safi);("value",value)] 
+    | x -> x in
+  let lst = List.map map_fn l in 
+  `List lst
+;;
+
+type bmp_msg_stat = { 
+  peer_hdr: bmp_peer_header; 
+  count: int32; 
+  data: bmp_msg_stat_entry_list
+} [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_msg_stat buf = 
   let (peer_hdr,buf) = read_bmp_peer_header buf in
   let count = Bytes.get_int32_be buf 0 in
@@ -222,7 +236,7 @@ let read_bmp_msg_peer_down buf =
 
 type bmp_msg_route_monitor = {
   peer_hdr: bmp_peer_header; 
-  update_msg: bgp_msg_update [@to_yojson fun _x -> `String "x"];
+  update_msg: bgp_msg_update;
 } [@@deriving to_yojson, show { with_path = false }] ;;
 let read_bmp_msg_route_monitor buf = 
   let (peer_hdr,buf) = read_bmp_peer_header buf in
