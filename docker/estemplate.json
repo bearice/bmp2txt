@@ -1,0 +1,141 @@
+{
+  "template": "bmp-raw",
+  "order": 1,
+  "version": 60003,
+  "settings": {
+    "index.refresh_interval": "5s"
+  },
+  "index_patterns" : [
+    "bmp-raw-*"
+  ],
+  "mappings": {
+    "dynamic_templates" : [
+      {
+        "message_field" : {
+          "path_match" : "message",
+          "mapping" : {
+            "norms" : false,
+            "type" : "text"
+          },
+          "match_mapping_type" : "string"
+        }
+      },
+      {
+        "string_fields" : {
+          "mapping" : {
+            "norms" : false,
+            "type" : "text",
+            "fields" : {
+              "keyword" : {
+                "ignore_above" : 256,
+                "type" : "keyword"
+              }
+            }
+          },
+          "match_mapping_type" : "string",
+          "match" : "*"
+        }
+      }
+    ],
+    "properties": {
+      "@timestamp": {
+        "type": "date"
+      },
+      "@version": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "host": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "peer_hdr": {
+        "properties": {
+          "addr": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          },
+          "flag": {
+            "type": "long"
+          },
+          "pd": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          },
+          "peer_as": {
+            "type": "long"
+          },
+          "peer_id": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          },
+          "ts": {
+            "type": "long"
+          },
+          "ts_us": {
+            "type": "long"
+          },
+          "type": {
+            "type": "text",
+            "fields": {
+              "keyword": {
+                "type": "keyword",
+                "ignore_above": 256
+              }
+            }
+          }
+        }
+      },
+      "type": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "update_msg": {
+        "type": "object",
+        "enabled": false
+      },
+      "recv_open_msg": {
+        "type": "object",
+        "enabled": false
+      },
+      "sent_open_msg": {
+        "type": "object",
+        "enabled": false
+      },
+      "data": {
+        "type": "object",
+        "enabled": false
+      }
+    }
+  }
+}

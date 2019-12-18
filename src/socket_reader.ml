@@ -6,16 +6,16 @@ let show_sockaddr from = match from with
   | Unix.ADDR_UNIX name -> name
 ;;
 
-let print_msg ({from;seq},msg) = 
-  print_int seq ;
-  print_string " " ;
-  print_string @@ show_sockaddr from ;
-  print_string " " ;
-  print_endline (show_bmp_msg msg) ;
+let print_msg (_,msg) = 
+  (* print_int seq ;
+     print_string " " ;
+     print_string @@ show_sockaddr from ;
+     print_string " " ; *)
+  print_endline @@ bmp_msg_to_json_string msg;
 ;;
 
 let accept_connection (fd,from) =
-  Printf.printf "Connected from %s%!\n" @@ show_sockaddr from;
+  Printf.eprintf "Connected from %s%!\n" @@ show_sockaddr from;
   let ic = Unix.in_channel_of_descr fd in
   let rec stream_msg seq = 
     try 
@@ -24,14 +24,14 @@ let accept_connection (fd,from) =
       Seq.Cons ((meta,msg),(fun ()-> stream_msg (seq+1))) 
     with 
       End_of_file -> 
-      print_endline "EOF reached";
+      Printf.eprintf "EOF Reached: %s%!\n" @@ show_sockaddr from;
       Seq.Nil 
     | e ->
       (* Printf.printf "v=%d t=%s l=%d\n" ver (show_bmp_msg_type typ) len ;
          debug_hex_dump buf; *)
       let msg = Printexc.to_string e
       and stack = Printexc.get_backtrace () in
-      Printf.printf "there was an error: %s%s\n" msg stack;
+      Printf.eprintf "there was an error: %s%s\n" msg stack;
       raise e
   in
   let msgs = fun ()-> stream_msg 0 in
@@ -44,7 +44,7 @@ let accept_connection (fd,from) =
   in
   msgs |> (Seq.filter filter_msg) |> Seq.iter print_msg;
   Unix.close fd;
-  print_endline "Connection closed";
+  Printf.eprintf "Connected from %s%!\n" @@ show_sockaddr from;
   Thread.exit
 ;;
 
@@ -54,13 +54,15 @@ let create_socket listen_address port backlog =
   let bind_addr = ADDR_INET(listen_address, port) in
   setsockopt sock SO_REUSEADDR true;
   bind sock bind_addr;
-  Printf.printf "Listening on %s\n%!" @@ show_sockaddr bind_addr;
+  Printf.eprintf "Listening on %s\n%!" @@ show_sockaddr bind_addr;
   listen sock backlog;
   sock
 
-let socket_main () = 
-  let _ = Printexc.record_backtrace true in
-  let sock = create_socket Unix.inet_addr_any 5000 10 in
+let main ~bind = 
+  let pos = String.index bind ':' in 
+  let bind_addr = Unix.inet_addr_of_string @@ String.sub bind 0 pos in
+  let bind_port = int_of_string @@ String.sub bind (pos+1) ((String.length bind)-pos-1) in
+  let sock = create_socket bind_addr bind_port 10 in
   while true do
     let c = Unix.accept sock in 
     let _ = Thread.create accept_connection c in

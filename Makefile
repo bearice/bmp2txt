@@ -6,4 +6,8 @@ PACKS = ppx_deriving.std ppx_deriving_yojson ppx_deriving_yojson.runtime hex ipa
 THREADS = yes
 
 all: debug-code
+docker: all
+	cp $(RESULT) docker/
+	docker build -t bmp2txt docker/
+
 include $(OCAMLMAKEFILE)

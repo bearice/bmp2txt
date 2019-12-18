@@ -1,0 +1,13 @@
+input {
+    stdin { codec => json_lines {} }
+}
+output{
+   elasticsearch{
+        ilm_enabled => false
+        hosts=>"#ES_URL#"
+		index=>"bmp-raw-%{+YYYY.MM.dd}"
+        template=>"/estemplate.json"
+        template_name => "bmp-raw"
+        template_overwrite => true
+	}
+}

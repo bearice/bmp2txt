@@ -79,8 +79,8 @@ let read_bmp_info raw = match raw.typ with
 
 let read_bmp_info_list = read_list read_bmp_info read_bmp_info_raw ;;
 
-type bmp_msg_init = bmp_info list [@@deriving to_yojson, show { with_path = false }] ;;
-let read_bmp_msg_init = read_bmp_info_list ;;
+type bmp_msg_init = {msgs: bmp_info list} [@@deriving to_yojson, show { with_path = false }] ;;
+let read_bmp_msg_init x = {msgs=read_bmp_info_list x} ;;
 
 type bmp_msg_term_type = 
     BMP_MSG_TERM_STRING
@@ -303,4 +303,5 @@ let input_bmp_msg ic =
   let payload = Bytes.create raw.len in
   really_input ic payload 0 raw.len;
   read_bmp_msg {raw with payload}
-let bmp_msg_of_bytes buf = read_bmp_msg @@ read_bmp_msg_raw buf 
+let bmp_msg_of_bytes buf = read_bmp_msg @@ read_bmp_msg_raw buf ;;
+let bmp_msg_to_json_string buf = Yojson.Safe.to_string @@ bmp_msg_to_yojson buf;;
