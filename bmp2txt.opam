@@ -1,0 +1,17 @@
+opam-version: "2.0"
+name: "bmp2txt"
+version: "0.1"
+synopsis: "RFC7854 protocol parser"
+description: """
+RFC7854 protocol parser and json dump
+"""
+maintainer: "Bearice Ren<bearice@icybear.net>"
+authors: "Bearice Ren<bearice@icybear.net>"
+license: "MIT"
+homepage: "https://github.com/bearice/bmp2txt"
+bug-reports: "https://github.com/bearice/bmp2txt/issues"
+depends: [ "ocaml" "ocamlfind" "ppx_deriving" "ppx_deriving_yojson" "hex" "ipaddr" "lwt" "kafka" "yojson"]
+build: [
+  [make]
+]
+
